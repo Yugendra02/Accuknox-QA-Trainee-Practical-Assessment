@@ -1,0 +1,338 @@
+Problem Statement 1: Containerisation and Deployment of Wisecow Application on Kubernetes
+1. Dockerization
+Dockerfile Creation:
+Create a Dockerfile in the root directory of the Wisecow application.
+
+Base the image on a suitable runtime, e.g., node:alpine if it's a Node.js app, or python:alpine for Python.
+
+Copy the necessary application files, install dependencies, and set the container’s start command.
+
+Example Dockerfile for a Node.js application:
+
+dockerfile
+Copy code
+# Use a base image
+FROM node:14-alpine
+
+# Create an app directory
+WORKDIR /app
+
+# Copy the package.json and install dependencies
+COPY package*.json ./
+RUN npm install
+
+# Copy the application code
+COPY . .
+
+# Expose a port
+EXPOSE 3000
+
+# Start the application
+CMD ["npm", "start"]
+2. Kubernetes Deployment
+Create Kubernetes Manifest Files:
+
+Deployment Manifest:
+Define the Deployment manifest in a YAML file to specify replica count, container image, ports, and other configurations.
+Use environment variables if necessary to configure the application in the container.
+Service Manifest:
+Create a Service manifest to expose the Wisecow application within the Kubernetes cluster.
+Depending on the use case, use NodePort, LoadBalancer, or ClusterIP to make the service accessible.
+Example Kubernetes Deployment and Service files:
+
+yaml
+Copy code
+# deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wisecow-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wisecow
+  template:
+    metadata:
+      labels:
+        app: wisecow
+    spec:
+      containers:
+      - name: wisecow-container
+        image: yourdockerhub/wisecow:latest
+        ports:
+        - containerPort: 3000
+yaml
+Copy code
+# service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: wisecow-service
+spec:
+  selector:
+    app: wisecow
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: LoadBalancer
+3. Continuous Integration and Deployment (CI/CD)
+GitHub Actions Workflow:
+
+Set up a GitHub Actions workflow to automate Docker image builds and push them to a container registry (like Docker Hub or GitHub Container Registry).
+Trigger the workflow upon every commit.
+After successfully building and pushing the Docker image, update the Kubernetes deployment to use the latest image.
+Sample GitHub Actions Workflow YAML:
+
+yaml
+Copy code
+# .github/workflows/ci-cd.yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Login to Docker Hub
+      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+    - name: Build Docker image
+      run: docker build -t yourdockerhub/wisecow:latest .
+
+    - name: Push Docker image
+      run: docker push yourdockerhub/wisecow:latest
+  
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - name: Apply Kubernetes manifests
+      run: |
+        kubectl apply -f deployment.yaml
+        kubectl apply -f service.yaml
+4. TLS Implementation
+Use Kubernetes Ingress with TLS configuration for secure communication.
+
+Set up a Certificate using Let's Encrypt or another certificate authority.
+
+Example of using Ingress with TLS:
+
+yaml
+Copy code
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wisecow-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - wisecow.example.com
+    secretName: wisecow-tls
+  rules:
+  - host: wisecow.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: wisecow-service
+            port:
+              number: 80
+Problem Statement 2: Scripting Objectives
+For this, we’ll cover two options:
+
+1. System Health Monitoring Script (Bash)
+Use top, df, and free commands to gather CPU, memory, and disk usage.
+
+Check running processes and log an alert if thresholds are exceeded.
+
+Sample Bash script:
+
+bash
+Copy code
+#!/bin/bash
+
+CPU_THRESHOLD=80
+MEMORY_THRESHOLD=80
+DISK_THRESHOLD=90
+
+# Check CPU usage
+CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1}')
+if (( $(echo "$CPU_USAGE > $CPU_THRESHOLD" |bc -l) )); then
+    echo "CPU usage is above threshold: $CPU_USAGE%" >> /var/log/system_health.log
+fi
+
+# Check memory usage
+MEMORY_USAGE=$(free | grep Mem | awk '{print $3/$2 * 100.0}')
+if (( $(echo "$MEMORY_USAGE > $MEMORY_THRESHOLD" |bc -l) )); then
+    echo "Memory usage is above threshold: $MEMORY_USAGE%" >> /var/log/system_health.log
+fi
+
+# Check disk usage
+DISK_USAGE=$(df / | grep / | awk '{ print $5}' | sed 's/%//g')
+if [ "$DISK_USAGE" -gt "$DISK_THRESHOLD" ]; then
+    echo "Disk usage is above threshold: $DISK_USAGE%" >> /var/log/system_health.log
+fi
+2. Log File Analyzer (Python)
+Parse web server logs and generate reports for patterns like 404 errors, top pages, and IP addresses.
+
+Sample Python script:
+
+python
+Copy code
+import re
+from collections import Counter
+
+# Path to the log file
+log_file = '/var/log/nginx/access.log'
+
+# Read the log file
+with open(log_file, 'r') as file:
+    logs = file.readlines()
+
+# Regex patterns for 404 errors, requested pages, and IP addresses
+error_404_pattern = r' 404 '
+page_pattern = r'GET (.*?) HTTP'
+ip_pattern = r'(\d+\.\d+\.\d+\.\d+)'
+
+# Analyze logs
+errors_404 = [line for line in logs if re.search(error_404_pattern, line)]
+pages = [re.search(page_pattern, line).group(1) for line in logs if re.search(page_pattern, line)]
+ips = [re.search(ip_pattern, line).group(1) for line in logs if re.search(ip_pattern, line)]
+
+# Generate reports
+print(f"Number of 404 errors: {len(errors_404)}")
+print("Most requested pages:", Counter(pages).most_common(5))
+print("Top IP addresses:", Counter(ips).most_common(5))
+3. Log File Analyzer (Python)
+The objective is to analyze a web server log file (e.g., from an Apache or Nginx server) to extract specific insights, like the frequency of 404 errors, the most requested pages, and the IP addresses with the highest request counts. This can help in detecting issues and identifying traffic patterns.
+
+Steps:
+Read the log file: Open and read the log file line by line.
+Regex patterns:
+Use regular expressions to parse key elements:
+404 errors: Lines containing 404 in the status code position.
+Requested pages: URLs in each GET/POST request.
+IP addresses: IP addresses at the beginning of each log entry.
+Count occurrences:
+Use Python’s Counter from the collections module to count the number of times each IP, page, or error type appears.
+Report generation:
+Display a summary of findings, including the number of 404 errors, top requested pages, and top IP addresses.
+Example Code:
+python
+Copy code
+import re
+from collections import Counter
+
+# Path to the log file
+log_file = '/var/log/nginx/access.log'  # Replace with the actual path
+
+# Initialize lists to store extracted information
+errors_404 = []
+requested_pages = []
+ip_addresses = []
+
+# Regular expressions to extract patterns from log entries
+error_404_pattern = r' 404 '
+page_pattern = r'GET (.*?) HTTP'  # Assuming the log follows standard GET request format
+ip_pattern = r'(\d+\.\d+\.\d+\.\d+)'
+
+# Read the log file
+with open(log_file, 'r') as file:
+    for line in file:
+        # Find 404 errors
+        if re.search(error_404_pattern, line):
+            errors_404.append(line)
+
+        # Extract requested pages
+        page_match = re.search(page_pattern, line)
+        if page_match:
+            requested_pages.append(page_match.group(1))
+
+        # Extract IP addresses
+        ip_match = re.search(ip_pattern, line)
+        if ip_match:
+            ip_addresses.append(ip_match.group(1))
+
+# Generate a summarized report
+print(f"Number of 404 errors: {len(errors_404)}")
+print("Most requested pages:")
+for page, count in Counter(requested_pages).most_common(5):
+    print(f"{page}: {count} requests")
+
+print("\nTop IP addresses:")
+for ip, count in Counter(ip_addresses).most_common(5):
+    print(f"{ip}: {count} requests")
+Explanation:
+404 errors: len(errors_404) gives the total number of lines with a 404 error.
+Top requested pages: Counter(requested_pages).most_common(5) returns the five most frequently requested pages.
+Top IP addresses: Counter(ip_addresses).most_common(5) lists the five IP addresses with the most requests.
+4. Application Health Checker (Python)
+This script will periodically check an application’s health by sending HTTP requests and evaluating the status codes. If the application is “up,” it should return a 200 OK status; otherwise, it may return an error code (e.g., 503 for service unavailable).
+
+Steps:
+Send HTTP request:
+Use Python’s requests library to send an HTTP GET request to the application’s endpoint.
+Evaluate response:
+Check the HTTP status code. If the status is 200, the application is “up”; otherwise, it’s considered “down.”
+Logging:
+Log the status to a file or console, with timestamps to track the uptime or downtime.
+Periodic Check (optional):
+For continuous monitoring, the script can be set to run periodically (e.g., every minute) using a loop with a sleep interval or a cron job if run as a background process.
+Example Code:
+python
+Copy code
+import requests
+import time
+from datetime import datetime
+
+# Application URL to check
+app_url = "http://your-application-url.com"  # Replace with the actual URL
+
+# Log file to store health check results
+log_file = "app_health_log.txt"
+
+# Function to check application health
+def check_application_health():
+    try:
+        response = requests.get(app_url, timeout=5)
+        
+        # Check if status code indicates application is "up"
+        if response.status_code == 200:
+            status = "UP"
+        else:
+            status = "DOWN"
+        
+        # Log the result with a timestamp
+        with open(log_file, 'a') as file:
+            file.write(f"{datetime.now()} - Application is {status} (status code: {response.status_code})\n")
+        print(f"{datetime.now()} - Application is {status} (status code: {response.status_code})")
+        
+    except requests.exceptions.RequestException as e:
+        # Log the failure
+        with open(log_file, 'a') as file:
+            file.write(f"{datetime.now()} - Application is DOWN (Error: {e})\n")
+        print(f"{datetime.now()} - Application is DOWN (Error: {e})")
+
+# Periodically check the application health every 60 seconds
+while True:
+    check_application_health()
+    time.sleep(60)  # Check every minute
+Explanation:
+URL Check: Sends a GET request to app_url and checks the response status.
+Status Evaluation:
+If status_code == 200, the app is "up"; otherwise, it’s "down."
+Logs results to app_health_log.txt with timestamps.
+Loop: The while True loop runs this check every minute (time.sleep(60)), making it ideal for continuous monitoring.
